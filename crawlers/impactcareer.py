@@ -18,6 +18,7 @@ SLUG_RE   = re.compile(r"/impactcareer/grantors/careers/([A-Za-z0-9_-]+)")
 
 class ImpactCareerCrawler(BaseCrawler):
     name = "임팩트커리어"
+    curated = True  # 사회적가치 채용 전문 플랫폼 — 전체 공고 알림
 
     def fetch(self) -> list[dict]:
         jobs = {}

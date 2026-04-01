@@ -30,12 +30,20 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def matches_filter(job: dict) -> bool:
-    """포함 키워드 하나 이상 & 제외 키워드 없음"""
+def matches_filter(job: dict, curated: bool = False) -> bool:
+    """
+    curated=True  (임팩트커리어·RCDA·시민사회연대 등 특화 사이트)
+      → 제외 키워드만 체크 (포함 키워드 불필요)
+    curated=False (사람인·잡코리아·나라일터 등 일반 사이트)
+      → 포함 키워드 하나 이상 & 제외 키워드 없음
+    """
     text = f"{job.get('title', '')} {job.get('company', '')}".lower()
-    has_include = any(kw in text for kw in INCLUDE_KEYWORDS)
     has_exclude = any(kw in text for kw in EXCLUDE_KEYWORDS)
-    return has_include and not has_exclude
+    if has_exclude:
+        return False
+    if curated:
+        return True
+    return any(kw in text for kw in INCLUDE_KEYWORDS)
 
 
 def run():
@@ -65,8 +73,8 @@ def run():
             jobs = crawler.fetch()
             logger.info(f"[{crawler.name}] {len(jobs)}개 수집")
 
-            passed = [j for j in jobs if matches_filter(j)]
-            logger.info(f"[{crawler.name}] 필터 통과: {len(passed)}개")
+            passed = [j for j in jobs if matches_filter(j, crawler.curated)]
+            logger.info(f"[{crawler.name}] 필터 통과: {len(passed)}개 (curated={crawler.curated})")
 
             for job in passed:
                 job_id = f"{crawler.name}_{job['id']}"

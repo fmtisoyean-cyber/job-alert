@@ -18,6 +18,7 @@ LIST_PARAMS = {"menuCode": "7"}
 
 class RcdaCrawler(BaseCrawler):
     name = "한국지역사회교육협의회"
+    curated = True  # 기관 자체 채용공고만 올라오는 게시판
 
     def fetch(self) -> list[dict]:
         try:

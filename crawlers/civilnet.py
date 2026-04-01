@@ -22,6 +22,7 @@ LIST_URL = f"{BASE_URL}/recruits"
 
 class CivilnetCrawler(BaseCrawler):
     name = "시민사회연대회의"
+    curated = True  # 시민사회단체 구인구직 전문 게시판
 
     def fetch(self) -> list[dict]:
         jobs = {}

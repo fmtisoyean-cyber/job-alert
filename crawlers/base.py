@@ -7,6 +7,8 @@ logger = logging.getLogger(__name__)
 
 class BaseCrawler:
     name = "BaseCrawler"
+    # True이면 이미 사회적가치 특화 사이트 → 키워드 필터 없이 전부 알림
+    curated = False
 
     def fetch(self) -> list[dict]:
         """공고 목록 반환. 각 항목은 dict: {id, title, company, deadline, url, source}"""
