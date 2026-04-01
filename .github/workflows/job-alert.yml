@@ -13,13 +13,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+     - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: pip
-      - run: pip install -r requirements.txt
-      - run: python main.py
+      - name: 패키지 설치
+        run: pip install -r requirements.txt
+      - name: Playwright 브라우저 설치
+        run: playwright install chromium --with-deps
+      - name: 채용공고 수집 및 텔레그램 알림
+        run: python main.py
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_ID:   ${{ secrets.CHAT_ID }}
