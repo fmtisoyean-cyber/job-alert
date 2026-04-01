@@ -1,124 +1,104 @@
 """
 임팩트커리어 (impact.career) 크롤러
-사회적가치 추구 조직 채용 전문 플랫폼 (Rails 서버 렌더링)
-공고 URL 패턴: /impactcareer/grantors/careers/{slug}
+Rails 서버 렌더링 — 공고 링크 패턴: /impactcareer/grantors/careers/{slug}
+링크 텍스트가 "[기관명] 공고제목" 형태.
 """
 import hashlib
 import logging
 import re
+import requests
 from bs4 import BeautifulSoup
 from .base import BaseCrawler
 
 logger = logging.getLogger(__name__)
 
-BASE_URL  = "https://impact.career"
-LIST_URL  = f"{BASE_URL}/impactcareer/grantors/careers"
-SLUG_RE   = re.compile(r"/impactcareer/grantors/careers/([A-Za-z0-9_-]+)")
+BASE_URL = "https://impact.career"
+LIST_URL = f"{BASE_URL}/impactcareer/grantors/careers"
+SLUG_RE  = re.compile(r"/impactcareer/grantors/careers/([A-Za-z0-9_-]+)")
+ORG_RE   = re.compile(r"^\[(.+?)\]\s*(.+)$")   # "[기관명] 공고제목" 파싱
 
 
 class ImpactCareerCrawler(BaseCrawler):
-    name = "임팩트커리어"
-    curated = True  # 사회적가치 채용 전문 플랫폼 — 전체 공고 알림
+    name    = "임팩트커리어"
+    curated = True
 
     def fetch(self) -> list[dict]:
-        jobs = {}
-        for url in [BASE_URL, LIST_URL]:
+        results = {}
+        for url in [LIST_URL, BASE_URL]:
             try:
                 items = self._parse_page(url)
                 for item in items:
-                    jobs[item["id"]] = item
+                    results[item["id"]] = item
+                if results:
+                    break   # 성공하면 중단
             except Exception as e:
                 logger.error(f"[{self.name}] {url} 오류: {e}")
-        return list(jobs.values())
+        logger.info(f"[{self.name}] 수집: {len(results)}개")
+        return list(results.values())
 
     def _parse_page(self, url: str) -> list[dict]:
-        resp = self.get(url)
-        if not resp:
+        # Session + 브라우저 헤더로 요청
+        session = requests.Session()
+        session.headers.update({
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/122.0.0.0 Safari/537.36"
+            ),
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8",
+            "Referer": BASE_URL,
+        })
+        try:
+            resp = session.get(url, timeout=20)
+            resp.raise_for_status()
+        except Exception as e:
+            logger.error(f"[{self.name}] 요청 실패 ({url}): {e}")
             return []
+
         soup = BeautifulSoup(resp.text, "lxml")
-        results = []
+        results = {}
 
-        # 방법1: 공고 링크 href 패턴으로 카드 탐색
-        career_links = soup.find_all("a", href=SLUG_RE)
-        for link in career_links:
-            try:
-                job = self._parse_card_from_link(link)
-                if job:
-                    results.append(job)
-            except Exception as e:
-                logger.debug(f"[{self.name}] 파싱 오류: {e}")
+        # 모든 <a> 태그를 순회하며 slug 패턴 탐색
+        for a in soup.find_all("a", href=True):
+            href = a.get("href", "")
+            m = SLUG_RE.search(href)
+            if not m:
+                continue
+            slug = m.group(1)
+            if slug in results:
+                continue
 
-        # 방법2: 카드 컨테이너 직접 탐색 (링크가 없는 경우 보완)
-        if not results:
-            cards = (
-                soup.select("div[class*='card'] a[href*='careers']")
-                or soup.select("article a[href*='careers']")
-                or soup.select(".job-card")
-            )
-            for card in cards:
-                try:
-                    job = self._parse_card_from_link(card)
-                    if job:
-                        results.append(job)
-                except Exception as e:
-                    logger.debug(f"[{self.name}] 카드 파싱 오류: {e}")
+            full_url = BASE_URL + href if href.startswith("/") else href
 
-        return results
+            # 링크 텍스트 → 없으면 상위 컨테이너 텍스트
+            title_text = a.get_text(" ", strip=True)
+            if not title_text:
+                parent = a.find_parent(["li", "div", "article"])
+                title_text = parent.get_text(" ", strip=True) if parent else ""
+            title_text = re.sub(r"\s+", " ", title_text).strip()
+            if not title_text or len(title_text) < 3:
+                continue
 
-    def _parse_card_from_link(self, link_tag) -> dict | None:
-        href = link_tag.get("href", "")
-        m = SLUG_RE.search(href)
-        if not m:
-            return None
+            # "[기관명] 제목" 분리
+            org_m = ORG_RE.match(title_text)
+            company = org_m.group(1).strip() if org_m else ""
+            title   = org_m.group(2).strip() if org_m else title_text
 
-        slug = m.group(1)
-        full_url = f"{BASE_URL}{href}" if href.startswith("/") else href
+            # 제목 안 마감일 힌트 추출 (예: ~4/15)
+            deadline = ""
+            dm = re.search(r"~(\d{1,2}/\d{1,2}|\d{4}[.\-]\d{2}[.\-]\d{2})", title)
+            if dm:
+                deadline = dm.group(1)
+                title = title.replace(dm.group(0), "").strip()
 
-        # 링크 태그 및 상위 컨테이너에서 텍스트 추출
-        container = link_tag.parent or link_tag
+            results[slug] = {
+                "id":       hashlib.md5(full_url.encode()).hexdigest()[:16],
+                "title":    title,
+                "company":  company,
+                "deadline": deadline,
+                "url":      full_url,
+                "source":   self.name,
+            }
 
-        # 제목 추출 — 가장 굵은 텍스트 또는 heading 태그
-        title_tag = (
-            container.select_one("h1, h2, h3, h4")
-            or container.select_one("[class*='title']")
-            or container.select_one("[class*='tit']")
-            or container.select_one("strong")
-        )
-        title = title_tag.get_text(strip=True) if title_tag else link_tag.get_text(strip=True)
-        title = title.strip()
-        if not title or len(title) < 2:
-            return None
-
-        # 기관명 — 제목 다음에 오는 텍스트 또는 별도 클래스
-        company_tag = (
-            container.select_one("[class*='company']")
-            or container.select_one("[class*='org']")
-            or container.select_one("[class*='corp']")
-        )
-        company = company_tag.get_text(strip=True) if company_tag else ""
-
-        # 마감일 — 날짜 패턴 탐색
-        deadline = ""
-        date_tag = (
-            container.select_one("[class*='deadline']")
-            or container.select_one("[class*='date']")
-            or container.select_one("[class*='period']")
-        )
-        if date_tag:
-            deadline = date_tag.get_text(strip=True)
-        else:
-            # 텍스트에서 날짜 패턴 추출
-            text = container.get_text(" ", strip=True)
-            date_match = re.search(r"\d{4}[.\-/]\d{1,2}[.\-/]\d{1,2}", text)
-            if date_match:
-                deadline = date_match.group()
-
-        job_id = hashlib.md5(full_url.encode()).hexdigest()[:16]
-        return {
-            "id":       job_id,
-            "title":    title,
-            "company":  company,
-            "deadline": deadline,
-            "url":      full_url,
-            "source":   self.name,
-        }
+        return list(results.values())
