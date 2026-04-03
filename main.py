@@ -11,7 +11,7 @@ import re
 import sys
 from datetime import datetime
 
-from config import INCLUDE_KEYWORDS, EXCLUDE_KEYWORDS
+from config import INCLUDE_KEYWORDS, EXCLUDE_KEYWORDS, ALLOW_REGIONS, EXCLUDE_REGIONS
 from state import StateManager
 from notifier import TelegramNotifier
 from crawlers.gojobs import GojobsCrawler
@@ -70,6 +70,21 @@ def is_active(job: dict) -> bool:
     return True
 
 
+def is_metro_region(job: dict) -> bool:
+    """
+    지역 필터 — 서울·경기·인천만 허용.
+    제목에 비수도권 지역명이 명시된 경우 제외.
+    지역 정보 없으면 포함 (수도권 공고일 가능성).
+    """
+    text = f"{job.get('title', '')} {job.get('company', '')}".lower()
+
+    # 비수도권 지역명이 명시되면 제외
+    if any(region in text for region in EXCLUDE_REGIONS):
+        return False
+
+    return True
+
+
 def matches_filter(job: dict, curated: bool = False) -> bool:
     """
     curated=True  (임팩트커리어·RCDA·시민사회연대 등 특화 사이트)
@@ -116,7 +131,10 @@ def run():
             active = [j for j in jobs if is_active(j)]
             logger.info(f"[{crawler.name}] 진행중: {len(active)}개 / 마감 제외: {len(jobs)-len(active)}개")
 
-            passed = [j for j in active if matches_filter(j, crawler.curated)]
+            regional = [j for j in active if is_metro_region(j)]
+            logger.info(f"[{crawler.name}] 수도권: {len(regional)}개 / 지역 제외: {len(active)-len(regional)}개")
+
+            passed = [j for j in regional if matches_filter(j, crawler.curated)]
             logger.info(f"[{crawler.name}] 키워드 통과: {len(passed)}개")
 
             for job in passed:
