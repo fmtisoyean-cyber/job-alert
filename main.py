@@ -7,7 +7,9 @@ seen_jobs.json으로 중복 관리, 텔레그램으로 알림 전송
     GitHub Actions cron으로 자동 실행 (.github/workflows/job-alert.yml)
 """
 import logging
+import re
 import sys
+from datetime import datetime
 
 from config import INCLUDE_KEYWORDS, EXCLUDE_KEYWORDS
 from state import StateManager
@@ -28,6 +30,44 @@ logging.basicConfig(
     ],
 )
 logger = logging.getLogger(__name__)
+
+
+def is_active(job: dict) -> bool:
+    """마감 여부 판단 — 지난 공고는 제외, 판단 불가 시 포함"""
+    title    = job.get("title", "")
+    deadline = job.get("deadline", "")
+    combined = f"{title} {deadline}"
+
+    # 명시적 마감 키워드 → 제외
+    closed = ["접수마감", "채용완료", "모집완료", "마감완료", "종료"]
+    if any(kw in combined for kw in closed):
+        return False
+
+    today = datetime.now().date()
+
+    # "2023.04.15" / "2023-04-15" 형태 → 날짜 비교
+    m = re.search(r"(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})", deadline)
+    if m:
+        try:
+            d = datetime(int(m.group(1)), int(m.group(2)), int(m.group(3))).date()
+            return d >= today
+        except ValueError:
+            pass
+
+    # "~4/15" 또는 "~04/15" 형태 → 올해 기준 비교
+    m2 = re.search(r"~(\d{1,2})/(\d{1,2})", deadline)
+    if m2:
+        try:
+            month, day = int(m2.group(1)), int(m2.group(2))
+            d = datetime(today.year, month, day).date()
+            # 이미 지났고 연초면 내년일 수 있으므로 30일 이상 지난 경우만 제외
+            if (today - d).days > 30:
+                return False
+        except ValueError:
+            pass
+
+    # "D-7", "상시", 날짜 없음 → 판단 불가, 포함
+    return True
 
 
 def matches_filter(job: dict, curated: bool = False) -> bool:
@@ -73,8 +113,11 @@ def run():
             jobs = crawler.fetch()
             logger.info(f"[{crawler.name}] {len(jobs)}개 수집")
 
-            passed = [j for j in jobs if matches_filter(j, crawler.curated)]
-            logger.info(f"[{crawler.name}] 필터 통과: {len(passed)}개 (curated={crawler.curated})")
+            active = [j for j in jobs if is_active(j)]
+            logger.info(f"[{crawler.name}] 진행중: {len(active)}개 / 마감 제외: {len(jobs)-len(active)}개")
+
+            passed = [j for j in active if matches_filter(j, crawler.curated)]
+            logger.info(f"[{crawler.name}] 키워드 통과: {len(passed)}개")
 
             for job in passed:
                 job_id = f"{crawler.name}_{job['id']}"
