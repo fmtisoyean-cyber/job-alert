@@ -20,10 +20,6 @@ jobs:
           cache: pip
       - name: 패키지 설치
         run: pip install -r requirements.txt
-      - name: Playwright 브라우저 설치
-        run: |
-          playwright install chromium
-          sudo playwright install-deps chromium
       - name: 채용공고 수집 및 텔레그램 알림
         run: python main.py
         env:
