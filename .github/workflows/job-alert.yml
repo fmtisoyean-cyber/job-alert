@@ -25,6 +25,7 @@ jobs:
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_ID:   ${{ secrets.CHAT_ID }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}    ← 이 줄 추가
       - name: seen_jobs.json 커밋
         run: |
           git config user.name  "github-actions[bot]"
