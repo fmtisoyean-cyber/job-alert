@@ -93,6 +93,14 @@ class SaraminCrawler(BaseCrawler):
         deadline = deadline_tag.get_text(strip=True) if deadline_tag else "미정"
         # "D-7" 같은 형태가 올 수 있으니 그대로 사용
 
+        # 근무지역
+        location_tag = (
+            card.select_one(".work_place")
+            or card.select_one(".job_condition .work_place")
+            or card.select_one("[class*='work_place']")
+        )
+        location = location_tag.get_text(strip=True) if location_tag else ""
+
         job_id = hashlib.md5(href.encode()).hexdigest()[:16]
 
         return {
@@ -100,6 +108,7 @@ class SaraminCrawler(BaseCrawler):
             "title": title,
             "company": company,
             "deadline": deadline,
+            "location": location,
             "url": href,
             "source": self.name,
         }
